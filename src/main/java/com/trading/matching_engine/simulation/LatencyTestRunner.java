@@ -270,7 +270,7 @@ public class LatencyTestRunner {
                     remaining--;
                 }
             }
-            if (remaining > 0) Thread.sleep(2);
+            if (remaining > 0) Thread.sleep(10);
         }
 
         if (remaining > 0) {

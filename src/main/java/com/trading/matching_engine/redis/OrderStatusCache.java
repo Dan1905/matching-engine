@@ -7,7 +7,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -49,4 +52,17 @@ public class OrderStatusCache {
         }
         return statuses;
     }
+
+    public void putAll(Map<String, String> statusUpdates) {
+    redis.executePipelined((RedisCallback<Object>) connection -> {
+        statusUpdates.forEach((orderId, status) ->
+            connection.stringCommands().set(
+                ("order:status:" + orderId).getBytes(),
+                status.getBytes(),
+                Expiration.seconds(TTL_SECONDS),
+                RedisStringCommands.SetOption.UPSERT
+            ));
+        return null;
+    });
+}
 }

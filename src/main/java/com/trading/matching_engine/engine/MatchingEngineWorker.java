@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.trading.matching_engine.domain.Order;
 import com.trading.matching_engine.matching.MatchResult;
 import com.trading.matching_engine.matching.MatchingEngine;
 import com.trading.matching_engine.persistence.AsyncPersistenceWriter;
@@ -58,8 +59,8 @@ public class MatchingEngineWorker implements Runnable{
         log.info("MatchingEngineWorker stopped");
     }
 
-    private void handleSubmit(com.trading.matching_engine.domain.Order order) {
-        busy = true;
+    private void handleSubmit(Order order) {
+    busy = true;
         try {
             MatchResult result = engine.processOrder(order);
 
@@ -67,10 +68,11 @@ public class MatchingEngineWorker implements Runnable{
                 writer.persist(new WriteEvent.OrderEvent(updated)));
             result.getTrades().forEach(t -> writer.persist(new WriteEvent.TradeEvent(t)));
             result.getUpdatedOrders().forEach(updated ->
-                statusCache.put(updated.getId(), updated.getStatus().name()));
+                writer.persist(new WriteEvent.StatusEvent(updated.getId(), updated.getStatus().name())));
+            // NO direct statusCache.put() call here anymore — matching thread never touches Redis
         } finally {
             busy = false;
-        }
+            }
     }
 
     private void handleCancel(EngineCommand.CancelOrder cmd) {

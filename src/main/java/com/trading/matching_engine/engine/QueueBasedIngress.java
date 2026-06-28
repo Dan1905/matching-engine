@@ -1,14 +1,14 @@
 package com.trading.matching_engine.engine;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 
 import org.springframework.stereotype.Component;
 
 @Component
 public class QueueBasedIngress implements OrderIngress {
    private static final int CAPACITY = 100_000;
-    private final BlockingQueue<EngineCommand> queue = new LinkedBlockingQueue<>(CAPACITY);
+    private final BlockingQueue<EngineCommand> queue = new ArrayBlockingQueue<>(CAPACITY);
 
     @Override
     public boolean submit(EngineCommand command) {
