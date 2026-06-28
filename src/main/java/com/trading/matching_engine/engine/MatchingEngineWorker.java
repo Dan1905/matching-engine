@@ -1,0 +1,87 @@
+package com.trading.matching_engine.engine;
+
+
+
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import com.trading.matching_engine.matching.MatchResult;
+import com.trading.matching_engine.matching.MatchingEngine;
+import com.trading.matching_engine.persistence.AsyncPersistenceWriter;
+import com.trading.matching_engine.persistence.WriteEvent;
+import com.trading.matching_engine.redis.OrderStatusCache;
+
+@Component
+public class MatchingEngineWorker implements Runnable{
+     private static final Logger log = LoggerFactory.getLogger(MatchingEngineWorker.class);
+
+    private final OrderIngress ingress;
+    private final MatchingEngine engine;
+    private final AsyncPersistenceWriter writer;
+    private final OrderStatusCache statusCache;
+    private volatile boolean running = true;
+    private volatile boolean busy = false;
+
+    public MatchingEngineWorker(OrderIngress ingress,
+                                 MatchingEngine engine,
+                                 AsyncPersistenceWriter writer,
+                                 OrderStatusCache statusCache) {
+        this.ingress = ingress;
+        this.engine = engine;
+        this.writer = writer;
+        this.statusCache = statusCache;
+    }
+
+    @Override
+    public void run() {
+        log.info("MatchingEngineWorker started on thread: {}", Thread.currentThread().getName());
+
+        while (running) {
+            try {
+                EngineCommand command = ingress.take();
+
+                switch (command) {
+                    case EngineCommand.SubmitOrder cmd -> handleSubmit(cmd.order());
+                    case EngineCommand.CancelOrder cmd -> handleCancel(cmd);
+                }
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                log.error("Error processing command — worker continues", e);
+            }
+        }
+
+        log.info("MatchingEngineWorker stopped");
+    }
+
+    private void handleSubmit(com.trading.matching_engine.domain.Order order) {
+        busy = true;
+        try {
+            MatchResult result = engine.processOrder(order);
+
+            writer.persist(new WriteEvent.OrderEvent(order));
+            result.getTrades().forEach(t -> writer.persist(new WriteEvent.TradeEvent(t)));
+
+            statusCache.put(order.getId(), order.getStatus().name());
+        } finally {
+            busy = false;
+        }
+    }
+
+    private void handleCancel(EngineCommand.CancelOrder cmd) {
+        engine.cancel(cmd.orderId(), cmd.side(), cmd.price());
+        statusCache.put(cmd.orderId(), com.trading.matching_engine.domain.OrderStatus.CANCELLED.name());
+    }
+
+    public void stop() {
+        running = false;
+    }
+
+    public boolean isIdle() {
+        return !busy && ingress.isEmpty() && writer.isIdle();
+    }
+}
