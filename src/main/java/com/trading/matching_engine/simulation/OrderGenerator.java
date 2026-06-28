@@ -17,12 +17,13 @@ import com.trading.matching_engine.domain.OrderType;
 import com.trading.matching_engine.domain.Side;
 import com.trading.matching_engine.engine.EngineCommand;
 import com.trading.matching_engine.engine.MatchingEngineWorker;
-import com.trading.matching_engine.engine.QueueBasedIngress;
 import com.trading.matching_engine.engine.OrderIngress;
+import com.trading.matching_engine.engine.QueueBasedIngress;
 import com.trading.matching_engine.persistence.AsyncPersistenceWriter;
-
+import com.trading.matching_engine.redis.OrderStatusCache;
 
 public class OrderGenerator {
+
     private final OrderIngress ingress;
     private final Random random = new Random();
     private static final BigDecimal MID = new BigDecimal("150.00");
@@ -34,35 +35,38 @@ public class OrderGenerator {
 
     public static void main(String[] args) throws InterruptedException {
         int count = args.length > 0 ? Integer.parseInt(args[0]) : 1000;
-        boolean concurrent = args.length > 1 && "concurrent".equalsIgnoreCase(args[1]);
+        String mode = args.length > 1 ? args[1].toLowerCase() : "submit";
+        boolean concurrent = "concurrent".equals(mode);
+        boolean endToEnd = "e2e".equals(mode) || "end-to-end".equals(mode);
         int producerThreads = args.length > 2 ? Integer.parseInt(args[2]) : 8;
 
         try (ConfigurableApplicationContext context = new SpringApplicationBuilder(MatchingEngineApplication.class)
             .web(WebApplicationType.NONE)
             .run(args)) {
+
             QueueBasedIngress ingress = context.getBean(QueueBasedIngress.class);
             MatchingEngineWorker worker = context.getBean(MatchingEngineWorker.class);
-            AsyncPersistenceWriter writer = context.getBean(AsyncPersistenceWriter.class);
             OrderGenerator generator = new OrderGenerator(ingress);
 
             if (concurrent) {
                 generator.generateConcurrent(producerThreads, count);
+                waitForDrain(worker, 30_000);
+            } else if (endToEnd) {
+                OrderStatusCache statusCache = context.getBean(OrderStatusCache.class);
+                generator.measureEndToEndLatency(count, statusCache);
+                waitForDrain(worker, 30_000);
             } else {
                 generator.generateAndMeasureSubmitLatency(count);
+                waitForDrain(worker, 30_000);
             }
-
-            waitForDrain(worker, 30_000);
         }
     }
 
     /**
      * Submits `count` orders as fast as possible from THIS thread, measuring how long
      * ingress.submit() takes — this is producer-side latency (time to hand off to the queue),
-     * NOT matching latency. Matching latency happens asynchronously on the worker thread and
-     * must be measured separately (see measureEndToEndLatency below, or just check
-     * AsyncPersistenceWriter timestamps / Redis status timestamps in a real run).
+     * NOT matching latency. Matching latency happens asynchronously on the worker thread.
      */
-
     public void generateAndMeasureSubmitLatency(int count) {
         long[] latencies = new long[count];
 
@@ -73,7 +77,7 @@ public class OrderGenerator {
             boolean accepted = ingress.submit(new EngineCommand.SubmitOrder(order));
             long end = System.nanoTime();
 
-            latencies[i] = (end - start);
+            latencies[i] = end - start;
 
             if (!accepted) {
                 System.out.println("WARNING: queue full, order " + i + " rejected");
@@ -84,9 +88,56 @@ public class OrderGenerator {
     }
 
     /**
+     * End-to-end mode is opt-in because it waits on Redis status changes, which only makes
+     * sense for orders that actually get matched and leave NEW status.
+     */
+    public void measureEndToEndLatency(int count, OrderStatusCache statusCache) throws InterruptedException {
+        long[] latencies = new long[count];
+        String[] orderIds = new String[count];
+        long[] startTimes = new long[count];
+
+        for (int i = 0; i < count; i++) {
+            Order order = randomOrder(i);
+            orderIds[i] = order.getId();
+            startTimes[i] = System.nanoTime();
+
+            boolean accepted = ingress.submit(new EngineCommand.SubmitOrder(order));
+            if (!accepted) {
+                System.out.println("WARNING: queue full, order " + i + " rejected");
+            }
+        }
+
+        int timedOutCount = 0;
+
+        for (int i = 0; i < count; i++) {
+            long deadline = System.nanoTime() + 5_000_000_000L; // 5 sec timeout per order
+            boolean resolved = false;
+
+            while (System.nanoTime() < deadline) {
+                var status = statusCache.get(orderIds[i]);
+                if (status.isPresent() && !status.get().equals("NEW")) {
+                    resolved = true;
+                    break;
+                }
+                Thread.sleep(0, 100_000); // 100 microseconds — avoid hard busy-spin
+            }
+
+            latencies[i] = System.nanoTime() - startTimes[i];
+            if (!resolved) timedOutCount++;
+        }
+
+        if (timedOutCount > 0) {
+            System.out.println("WARNING: " + timedOutCount + " orders timed out waiting for status update");
+        }
+
+        printStats(latencies, count, "End-to-end (submit -> matched) latency");
+    }
+
+    /**
      * Multi-threaded load test — simulates N concurrent producer threads all submitting
-     * orders simultaneously. This is the scenario that actually stresses the ingress queue
-     * and is what your benchmark numbers should be based on, not a single-threaded loop.
+     * orders simultaneously. Measures producer-side wall clock throughput only; use
+     * waitForDrain() afterward to confirm the worker thread has actually finished matching
+     * everything before you consider the run complete.
      */
     public void generateConcurrent(int producerThreads, int ordersPerThread) throws InterruptedException {
         Thread[] threads = new Thread[producerThreads];
@@ -113,8 +164,9 @@ public class OrderGenerator {
         System.out.println("Producer threads: " + producerThreads);
         System.out.println("Orders per thread: " + ordersPerThread);
         System.out.println("Total orders submitted: " + totalOrders);
-        System.out.printf("Wall clock time: %.3f sec%n", totalSeconds);
+        System.out.printf("Wall clock time (submit only): %.3f sec%n", totalSeconds);
         System.out.printf("Submit throughput: %.0f orders/sec%n", throughput);
+        System.out.println("NOTE: this is producer-side hand-off throughput only.");
     }
 
     private Order randomOrder(int i) {
@@ -161,11 +213,11 @@ public class OrderGenerator {
         long deadline = System.currentTimeMillis() + timeoutMillis;
         while (System.currentTimeMillis() < deadline) {
             if (worker.isIdle()) {
+                System.out.println("Engine drained — all orders processed.");
                 return;
             }
             Thread.sleep(50);
         }
-
         System.out.println("WARNING: timed out waiting for engine drain; shutting down anyway");
     }
 }
