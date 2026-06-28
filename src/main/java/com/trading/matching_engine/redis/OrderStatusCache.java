@@ -1,6 +1,10 @@
 package com.trading.matching_engine.redis;
 
 import java.time.Duration;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,5 +31,22 @@ public class OrderStatusCache {
         return Optional.ofNullable(
             redis.opsForValue().get("order:status:" + orderId)
         );
+    }
+
+    public Map<String, String> getAll(Collection<String> orderIds) {
+        List<String> ids = List.copyOf(orderIds);
+        List<String> keys = ids.stream()
+            .map(id -> "order:status:" + id)
+            .toList();
+        List<String> values = redis.opsForValue().multiGet(keys);
+        Map<String, String> statuses = new HashMap<>();
+
+        if (values == null) return statuses;
+        int index = 0;
+        for (String orderId : ids) {
+            String value = values.get(index++);
+            if (value != null) statuses.put(orderId, value);
+        }
+        return statuses;
     }
 }

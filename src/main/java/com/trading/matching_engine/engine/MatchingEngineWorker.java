@@ -63,10 +63,11 @@ public class MatchingEngineWorker implements Runnable{
         try {
             MatchResult result = engine.processOrder(order);
 
-            writer.persist(new WriteEvent.OrderEvent(order));
+            result.getUpdatedOrders().forEach(updated ->
+                writer.persist(new WriteEvent.OrderEvent(updated)));
             result.getTrades().forEach(t -> writer.persist(new WriteEvent.TradeEvent(t)));
-
-            statusCache.put(order.getId(), order.getStatus().name());
+            result.getUpdatedOrders().forEach(updated ->
+                statusCache.put(updated.getId(), updated.getStatus().name()));
         } finally {
             busy = false;
         }

@@ -11,10 +11,12 @@ import lombok.Getter;
 public class MatchResult {
     private final Order incomingOrder;
     private final List<Trade> trades;
+    private final List<Order> updatedOrders;
 
-    public MatchResult(Order incomingOrder, List<Trade> trades) {
+    public MatchResult(Order incomingOrder, List<Trade> trades, List<Order> updatedOrders) {
         this.incomingOrder = incomingOrder;
         this.trades = trades;
+        this.updatedOrders = updatedOrders;
     }
 
     public boolean hasMatches() {

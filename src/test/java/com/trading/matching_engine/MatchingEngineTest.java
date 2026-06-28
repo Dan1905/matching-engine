@@ -42,6 +42,9 @@ class MatchingEngineTest {
 
         assertEquals(1, result.getTrades().size());
         assertEquals(100, result.getTrades().get(0).getExecutedQty());
+        assertEquals(2, result.getUpdatedOrders().size());
+        assertTrue(result.getUpdatedOrders().contains(buy));
+        assertTrue(result.getUpdatedOrders().contains(sell));
     }
 
     @Test

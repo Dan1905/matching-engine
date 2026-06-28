@@ -43,6 +43,12 @@ public class TradeRepository {
         return jdbc.query(sql, tradeRowMapper(), symbol);
     }
 
+    public int countBySymbol(String symbol) {
+        Integer count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM trades WHERE symbol = ?", Integer.class, symbol);
+        return count == null ? 0 : count;
+    }
+
     private RowMapper<Trade> tradeRowMapper() {
         return (ResultSet rs, int rowNum) -> Trade.builder()
             .id(rs.getString("id"))

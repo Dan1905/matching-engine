@@ -27,6 +27,7 @@ public class AsyncPersistenceWriter implements Runnable{
     private final OrderRepository orderRepo;
     private final TradeRepository tradeRepo;
     private volatile boolean running = true;
+    private volatile boolean flushing = false;
     private Thread writerThread;
 
     public AsyncPersistenceWriter(OrderRepository orderRepo, TradeRepository tradeRepo) {
@@ -44,7 +45,7 @@ public class AsyncPersistenceWriter implements Runnable{
     }
 
     public boolean isIdle() {
-        return queue.isEmpty();
+        return queue.isEmpty() && !flushing;
     }
 
     @Override
@@ -58,13 +59,19 @@ public class AsyncPersistenceWriter implements Runnable{
                 batch.add(first);
                 queue.drainTo(batch, BATCH_SIZE - 1);
 
-                flush(batch);
-                batch.clear();
+                flushing = true;
+                try {
+                    flush(batch);
+                } finally {
+                    flushing = false;
+                    batch.clear();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
                 log.error("Persistence flush failed — batch dropped", e);
+                flushing = false;
                 batch.clear();
             }
         }

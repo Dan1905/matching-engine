@@ -25,7 +25,7 @@ public class MatchingEngine {
     private final TreeMap<BigDecimal, PriceLevel> asks =
         new TreeMap<>();
 
-    private void matchBuyOrder(Order incoming, List<Trade> trades) {
+    private void matchBuyOrder(Order incoming, List<Trade> trades, List<Order> updatedOrders) {
         while (incoming.getRemainingQuantity() > 0 && !asks.isEmpty()) {
             PriceLevel bestAskLevel = asks.firstEntry().getValue();
 
@@ -50,13 +50,14 @@ public class MatchingEngine {
             resting.setRemainingQuantity(resting.getRemainingQuantity() - fillQty);
             updateStatus(incoming);
             updateStatus(resting);
+            if (!updatedOrders.contains(resting)) updatedOrders.add(resting);
 
             if (resting.getRemainingQuantity() == 0) bestAskLevel.removeHead();
             if (bestAskLevel.isEmpty()) asks.pollFirstEntry();
         }
     }
 
-    private void matchSellOrder(Order incoming, List<Trade> trades) {
+    private void matchSellOrder(Order incoming, List<Trade> trades, List<Order> updatedOrders) {
         while (incoming.getRemainingQuantity() > 0 && !bids.isEmpty()) {
             PriceLevel bestBidLevel = bids.firstEntry().getValue();
 
@@ -81,6 +82,7 @@ public class MatchingEngine {
             resting.setRemainingQuantity(resting.getRemainingQuantity() - fillQty);
             updateStatus(incoming);
             updateStatus(resting);
+            if (!updatedOrders.contains(resting)) updatedOrders.add(resting);
 
             if (resting.getRemainingQuantity() == 0) bestBidLevel.removeHead();
             if (bestBidLevel.isEmpty()) bids.pollFirstEntry();
@@ -99,21 +101,23 @@ public class MatchingEngine {
         // called by exactly ONE thread — MatchingEngineWorker. No lock needed.
     public MatchResult processOrder(Order incoming) {
         List<Trade> trades = new ArrayList<>();
+        List<Order> updatedOrders = new ArrayList<>();
 
         if (incoming.getSide() == Side.BUY) {
-            matchBuyOrder(incoming, trades);
+            matchBuyOrder(incoming, trades, updatedOrders);
             if (incoming.getRemainingQuantity() > 0 && incoming.getOrderType() == OrderType.LIMIT) {
                 bids.computeIfAbsent(incoming.getPrice(), PriceLevel::new).addOrder(incoming);
             }
         } else {
-            matchSellOrder(incoming, trades);
+            matchSellOrder(incoming, trades, updatedOrders);
             if (incoming.getRemainingQuantity() > 0 && incoming.getOrderType() == OrderType.LIMIT) {
                 asks.computeIfAbsent(incoming.getPrice(), PriceLevel::new).addOrder(incoming);
             }
         }
 
         updateStatus(incoming);
-        return new MatchResult(incoming, trades);
+        updatedOrders.add(incoming);
+        return new MatchResult(incoming, trades, updatedOrders);
     }
 
      public void cancel(String orderId, Side side, BigDecimal price) {

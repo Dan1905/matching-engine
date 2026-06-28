@@ -17,7 +17,7 @@ public class OrderRepository {
         this.jdbc = jdbc;
     }
 
-        public void batchInsert(List<Order> orders) {
+    public void batchInsert(List<Order> orders) {
         String sql = """
             INSERT INTO orders
               (id, symbol, side, order_type, price,
@@ -44,5 +44,13 @@ public class OrderRepository {
             ps.setTimestamp(11, Timestamp.from(Instant.now()));
         });
     }
-    
+
+    public int countBySymbolAndStatus(String symbol, String status) {
+        Integer count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM orders WHERE symbol = ? AND status = ?",
+            Integer.class,
+            symbol,
+            status);
+        return count == null ? 0 : count;
+    }
 }
