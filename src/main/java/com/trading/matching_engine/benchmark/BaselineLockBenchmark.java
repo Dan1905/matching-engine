@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Comparator;
+import java.util.Queue;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -12,6 +13,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
@@ -29,23 +31,28 @@ import com.trading.matching_engine.domain.OrderStatus;
 import com.trading.matching_engine.domain.OrderType;
 import com.trading.matching_engine.domain.Side;
 
+/**
+ * Fair comparison point for SingleWriterBenchmark: this does the SAME unit of work —
+ * insert an order into a price-sorted book — but guarded by a real lock instead of
+ * relying on single-thread-only access. Multiple JMH threads call this CONCURRENTLY,
+ * which is the scenario the lock is actually protecting against.
+ */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
 @State(Scope.Benchmark)
 @Warmup(iterations = 3, time = 1)
 @Measurement(iterations = 5, time = 1)
 @Fork(1)
-@Threads(8)
+@Threads(8) // concurrent threads contending for the SAME lock — this is the real test
 public class BaselineLockBenchmark {
-    // ── synchronized baseline ─────────────────────────────────────
-    private TreeMap<BigDecimal, java.util.Queue<Order>> syncBids;
+
+    private TreeMap<BigDecimal, Queue<Order>> syncBids;
     private final Object syncLock = new Object();
 
-    // ── RWLock baseline ───────────────────────────────────────────
-    private TreeMap<BigDecimal, java.util.Queue<Order>> rwBids;
+    private TreeMap<BigDecimal, Queue<Order>> rwBids;
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
-    @Setup
+    @Setup(Level.Trial)
     public void setup() {
         syncBids = new TreeMap<>(Comparator.reverseOrder());
         rwBids   = new TreeMap<>(Comparator.reverseOrder());
@@ -55,7 +62,7 @@ public class BaselineLockBenchmark {
     public void synchronizedAddOrder() {
         Order order = makeOrder();
         synchronized (syncLock) {
-            syncBids.computeIfAbsent(order.getPrice(), p -> new ArrayDeque<>()).offer(order);
+            insertAndMaybeMatch(syncBids, order);
         }
     }
 
@@ -64,9 +71,23 @@ public class BaselineLockBenchmark {
         Order order = makeOrder();
         rwLock.writeLock().lock();
         try {
-            rwBids.computeIfAbsent(order.getPrice(), p -> new ArrayDeque<>()).offer(order);
+            insertAndMaybeMatch(rwBids, order);
         } finally {
             rwLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Mirrors MatchingEngine's real per-order cost: TreeMap navigation + queue insert,
+     * roughly equivalent computational work to what processOrder() does on the resting
+     * side. Not the full matching algorithm, but representative work under the lock —
+     * enough to make the comparison meaningful rather than trivial.
+     */
+    private void insertAndMaybeMatch(TreeMap<BigDecimal, Queue<Order>> book, Order order) {
+        book.computeIfAbsent(order.getPrice(), p -> new ArrayDeque<>()).offer(order);
+        // simulate checking the opposite side, same cost MatchingEngine pays per order
+        if (!book.isEmpty()) {
+            book.firstEntry().getValue().peek();
         }
     }
 
