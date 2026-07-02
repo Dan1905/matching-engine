@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,7 @@ public class AsyncPersistenceWriter implements Runnable{
     private volatile boolean flushing = false;
     private Thread writerThread;
     private final OrderStatusCache statusCache;
+    private final AtomicLong droppedEvents = new AtomicLong(0);
 
     public AsyncPersistenceWriter(OrderRepository orderRepo, TradeRepository tradeRepo, OrderStatusCache statusCache) {
         this.orderRepo = orderRepo;
@@ -48,8 +50,16 @@ public class AsyncPersistenceWriter implements Runnable{
 
     // called from the matching thread — must NEVER block
     public void persist(WriteEvent event) {
-        if (!queue.offer(event)) {
-            log.warn("Persistence queue full — dropping event: {}", event);
+    boolean offered = false;
+        try {
+            offered = queue.offer(event, 5, TimeUnit.MILLISECONDS); // brief bounded wait, not zero-wait drop
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (!offered) {
+            long total = droppedEvents.incrementAndGet();
+            log.error("Persistence queue full — DROPPED event #{}: {}", total, event);
+            // TODO: wire to a metrics counter / alert — this is a correctness incident, not a warning
         }
     }
 
@@ -57,6 +67,9 @@ public class AsyncPersistenceWriter implements Runnable{
         return queue.isEmpty() && !flushing;
     }
 
+    public long getDroppedEventCount() {
+        return droppedEvents.get();
+    }
     @Override
     public void run() {
         List<WriteEvent> batch = new ArrayList<>(BATCH_SIZE);

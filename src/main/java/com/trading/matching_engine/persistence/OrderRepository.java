@@ -5,9 +5,12 @@ import java.time.Instant;
 import java.util.List;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import com.trading.matching_engine.domain.Order;
+import com.trading.matching_engine.domain.OrderStatus;
+import com.trading.matching_engine.domain.Side;
 
 @Repository
 public class OrderRepository {
@@ -52,5 +55,26 @@ public class OrderRepository {
             symbol,
             status);
         return count == null ? 0 : count;
+    }
+
+    public java.util.Optional<Order> findById(String orderId) {
+        String sql = "SELECT * FROM orders WHERE id = ?";
+        List<Order> results = jdbc.query(sql, orderRowMapper(), orderId);
+        return results.stream().findFirst();
+    }
+
+    private RowMapper<Order> orderRowMapper() {
+        return (java.sql.ResultSet rs, int rowNum) -> Order.builder()
+            .id(rs.getString("id"))
+            .symbol(rs.getString("symbol"))
+            .side(Side.valueOf(rs.getString("side")))
+            .orderType(com.trading.matching_engine.domain.OrderType.valueOf(rs.getString("order_type")))
+            .price(rs.getBigDecimal("price"))
+            .originalQuantity(rs.getLong("original_quantity"))
+            .remainingQuantity(rs.getLong("remaining_quantity"))
+            .status(OrderStatus.valueOf(rs.getString("status")))
+            .clientOrderId(rs.getString("client_order_id"))
+            .createdAt(rs.getTimestamp("created_at").toInstant())
+            .build();
     }
 }

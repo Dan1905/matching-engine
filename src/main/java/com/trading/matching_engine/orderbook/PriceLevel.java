@@ -2,6 +2,7 @@ package com.trading.matching_engine.orderbook;
 
 import java.math.BigDecimal;
 import java.util.ArrayDeque;
+import java.util.Optional;
 import java.util.Queue;
 
 import com.trading.matching_engine.domain.Order;
@@ -33,7 +34,12 @@ public class PriceLevel {
         return price;
     }
 
-    public void cancel(String orderId) {
-        orders.removeIf(order -> order.getId().equals(orderId));
-    }
+    public Optional<Order> cancel(String orderId) {
+    Order found = orders.stream()
+        .filter(o -> o.getId().equals(orderId))
+        .findFirst()
+        .orElse(null);
+    if (found != null) orders.remove(found);
+    return Optional.ofNullable(found);
+}
 }

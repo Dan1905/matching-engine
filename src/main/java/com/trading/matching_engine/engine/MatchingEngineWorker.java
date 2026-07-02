@@ -76,8 +76,16 @@ public class MatchingEngineWorker implements Runnable{
     }
 
     private void handleCancel(EngineCommand.CancelOrder cmd) {
-        engine.cancel(cmd.orderId(), cmd.side(), cmd.price());
-        statusCache.put(cmd.orderId(), com.trading.matching_engine.domain.OrderStatus.CANCELLED.name());
+    engine.cancel(cmd.orderId(), cmd.side(), cmd.price()).ifPresentOrElse(
+        cancelledOrder -> {
+            writer.persist(new WriteEvent.OrderEvent(cancelledOrder));
+            writer.persist(new WriteEvent.StatusEvent(cmd.orderId(),
+                com.trading.matching_engine.domain.OrderStatus.CANCELLED.name()));
+            statusCache.put(cmd.orderId(),
+                com.trading.matching_engine.domain.OrderStatus.CANCELLED.name());
+        },
+        () -> log.warn("Cancel requested for order not found in book: {}", cmd.orderId())
+        );
     }
 
     public void stop() {

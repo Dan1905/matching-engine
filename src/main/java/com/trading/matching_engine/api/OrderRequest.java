@@ -16,5 +16,6 @@ public class OrderRequest {
     private OrderType orderType;
     private BigDecimal price;          // null when orderType == MARKET
     private long quantity;
-    private String clientOrderId;
+    private String clientId;           // identifies the CLIENT/ACCOUNT — used for rate limiting
+    private String clientOrderId; // identifies THIS ORDER — used for idempotency, NOT rate limiting
 }

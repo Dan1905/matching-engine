@@ -120,13 +120,18 @@ public class MatchingEngine {
         return new MatchResult(incoming, trades, updatedOrders);
     }
 
-     public void cancel(String orderId, Side side, BigDecimal price) {
+    public Optional<Order> cancel(String orderId, Side side, BigDecimal price) {
         TreeMap<BigDecimal, PriceLevel> book = side == Side.BUY ? bids : asks;
         PriceLevel level = book.get(price);
-        if (level == null) return;
-        level.cancel(orderId);
+        if (level == null) return Optional.empty();
+
+        Optional<Order> cancelled = level.cancel(orderId);
         if (level.isEmpty()) book.remove(price);
+
+        cancelled.ifPresent(o -> o.setStatus(OrderStatus.CANCELLED));
+        return cancelled;
     }
+    
 
     public Optional<Order> getBestBid() {
         if (bids.isEmpty()) return Optional.empty();
