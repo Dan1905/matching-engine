@@ -1,6 +1,5 @@
 package com.trading.matching_engine.api;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import org.springframework.http.ResponseEntity;
@@ -10,10 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.trading.matching_engine.domain.Side;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -30,13 +26,10 @@ public class OrderController {
         return ResponseEntity.accepted().body(orderId); // 202 — async processing
     }
 
-     @DeleteMapping("/{orderId}")
-    public ResponseEntity<Void> cancel(
-            @PathVariable String orderId,
-            @RequestParam Side side,
-            @RequestParam BigDecimal price) {
-        orderService.cancel(orderId, side, price);
-        return ResponseEntity.noContent().build();
+    @DeleteMapping("/{orderId}")
+    public ResponseEntity<Void> cancel(@PathVariable String orderId) {
+        orderService.cancel(orderId);
+        return ResponseEntity.accepted().build(); // 202 — the worker applies it in order
     }
 
     @GetMapping("/{orderId}/status")

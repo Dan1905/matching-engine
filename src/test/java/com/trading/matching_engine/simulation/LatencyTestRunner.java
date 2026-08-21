@@ -132,8 +132,8 @@ public class LatencyTestRunner {
         for (int pair = 0; pair < pairCount; pair++) {
             BigDecimal price = new BigDecimal("150.00");
             long qty = 100L;
-            Order buy = makeCrossingOrder(generator, pair * 2, symbol, price, qty, Side.BUY);
-            Order sell = makeCrossingOrder(generator, pair * 2 + 1, symbol, price, qty, Side.SELL);
+            Order buy = makeCrossingOrder(pair * 2, symbol, price, qty, Side.BUY);
+            Order sell = makeCrossingOrder(pair * 2 + 1, symbol, price, qty, Side.SELL);
             long submittedAt = System.nanoTime();
 
             if (!ingress.submit(new EngineCommand.SubmitOrder(buy))) {
@@ -229,21 +229,24 @@ public class LatencyTestRunner {
         throw new IllegalStateException("Timed out waiting for matching and persistence queues to drain");
     }
 
-    private static Order makeCrossingOrder(OrderGenerator generator,
-                                           int seed,
+    /** Built, not mutated: an Order is immutable apart from its quantity and status. */
+    private static Order makeCrossingOrder(int seed,
                                            String symbol,
                                            BigDecimal price,
                                            long qty,
                                            Side side) {
-        Order order = generator.randomOrder(seed);
-        order.setSymbol(symbol);
-        order.setSide(side);
-        order.setOrderType(OrderType.LIMIT);
-        order.setPrice(price);
-        order.setOriginalQuantity(qty);
-        order.setRemainingQuantity(qty);
-        order.setStatus(OrderStatus.NEW);
-        return order;
+        return Order.builder()
+            .id(UUID.randomUUID().toString())
+            .symbol(symbol)
+            .side(side)
+            .orderType(OrderType.LIMIT)
+            .price(price)
+            .originalQuantity(qty)
+            .remainingQuantity(qty)
+            .status(OrderStatus.NEW)
+            .clientOrderId("E2E-" + seed)
+            .createdAt(java.time.Instant.now())
+            .build();
     }
 
     private static long[] waitForFilledPairs(OrderStatusCache statusCache,

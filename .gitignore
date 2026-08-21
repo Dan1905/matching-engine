@@ -33,3 +33,8 @@ build/
 .vscode/
 
 cmds.txt
+### macOS / local
+.DS_Store
+
+### engine runtime output
+data/

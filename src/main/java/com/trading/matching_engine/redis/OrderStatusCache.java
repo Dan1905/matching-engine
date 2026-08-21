@@ -1,5 +1,6 @@
 package com.trading.matching_engine.redis;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
@@ -30,6 +31,10 @@ public class OrderStatusCache {
         );
     }
 
+    public void evict(String orderId) {
+        redis.delete("order:status:" + orderId);
+    }
+
     public Optional<String> get(String orderId) {
         return Optional.ofNullable(
             redis.opsForValue().get("order:status:" + orderId)
@@ -57,8 +62,8 @@ public class OrderStatusCache {
     redis.executePipelined((RedisCallback<Object>) connection -> {
         statusUpdates.forEach((orderId, status) ->
             connection.stringCommands().set(
-                ("order:status:" + orderId).getBytes(),
-                status.getBytes(),
+                ("order:status:" + orderId).getBytes(StandardCharsets.UTF_8),
+                status.getBytes(StandardCharsets.UTF_8),
                 Expiration.seconds(TTL_SECONDS),
                 RedisStringCommands.SetOption.UPSERT
             ));

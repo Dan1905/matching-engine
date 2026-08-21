@@ -9,18 +9,25 @@ import jakarta.annotation.PreDestroy;
 
 @Component
 public class EngineLifecycle {
-     private static final Logger log = LoggerFactory.getLogger(EngineLifecycle.class);
+    private static final Logger log = LoggerFactory.getLogger(EngineLifecycle.class);
 
     private final MatchingEngineWorker worker;
+    private final BookRecovery recovery;
     private Thread workerThread;
 
-    public EngineLifecycle(MatchingEngineWorker worker) {
+    public EngineLifecycle(MatchingEngineWorker worker, BookRecovery recovery) {
         this.worker = worker;
+        this.recovery = recovery;
     }
 
     @PostConstruct
     public void start() {
-        // platform thread — this is CPU-bound work, not I/O-bound, so no virtual thread here
+        // Recovery runs on this thread, to completion, before the worker exists — so the
+        // book is whole before the first live order can reach it.
+        recovery.recover();
+
+        // Platform thread: this is CPU-bound work with no blocking I/O inside it, so a
+        // virtual thread would add scheduling indirection for nothing.
         workerThread = Thread.ofPlatform()
             .name("matching-engine-worker")
             .start(worker);

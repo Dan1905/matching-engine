@@ -70,17 +70,19 @@
 			<artifactId>spring-boot-testcontainers</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- JMH -->
+		<!-- JMH — test scope: benchmarks and simulations live under src/test and must
+		     never be packaged into the production jar -->
 		<dependency>
 			<groupId>org.openjdk.jmh</groupId>
 			<artifactId>jmh-core</artifactId>
 			<version>1.37</version>
+			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.openjdk.jmh</groupId>
 			<artifactId>jmh-generator-annprocess</artifactId>
 			<version>1.37</version>
-			<scope>provided</scope>
+			<scope>test</scope>
 		</dependency>
 
 		<!-- Testcontainers -->
@@ -143,10 +145,25 @@
 									<groupId>org.projectlombok</groupId>
 									<artifactId>lombok</artifactId>
 								</path>
+								<!-- generates the JMH harness classes for src/test benchmarks -->
+								<path>
+									<groupId>org.openjdk.jmh</groupId>
+									<artifactId>jmh-generator-annprocess</artifactId>
+									<version>1.37</version>
+								</path>
 							</annotationProcessorPaths>
 						</configuration>
 					</execution>
 				</executions>
+			</plugin>
+			<!-- runs the benchmarks and simulation harnesses, which live on the test classpath -->
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>exec-maven-plugin</artifactId>
+				<version>3.6.3</version>
+				<configuration>
+					<classpathScope>test</classpathScope>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

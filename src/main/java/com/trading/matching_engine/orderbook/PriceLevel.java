@@ -1,45 +1,60 @@
 package com.trading.matching_engine.orderbook;
 
-import java.math.BigDecimal;
-import java.util.ArrayDeque;
-import java.util.Optional;
-import java.util.Queue;
-
 import com.trading.matching_engine.domain.Order;
 
-public class PriceLevel {
-    private final BigDecimal price;
-    private final Queue<Order> orders = new ArrayDeque<>();
-    public PriceLevel(BigDecimal price) {
-        this.price = price;
+/**
+ * One price in the book: a FIFO queue of resting orders, giving time priority within
+ * the price. Intrusive doubly-linked list — append, peek and remove are all O(1) with
+ * no iteration and no allocation beyond the node itself.
+ */
+public final class PriceLevel {
+    private final long priceTicks;
+    private OrderNode head;
+    private OrderNode tail;
+    private int orderCount;
+    private long totalQuantity;
+
+    PriceLevel(long priceTicks) {
+        this.priceTicks = priceTicks;
     }
 
-    public void addOrder(Order order) {
-        orders.offer(order);
+    OrderNode addLast(Order order) {
+        OrderNode node = new OrderNode(order);
+        node.level = this;
+        if (tail == null) {
+            head = tail = node;
+        } else {
+            tail.next = node;
+            node.prev = tail;
+            tail = node;
+        }
+        orderCount++;
+        totalQuantity += order.getRemainingQuantity();
+        return node;
     }
 
-    public Order peek() {
-        return orders.peek();
+    Order peek() {
+        return head == null ? null : head.order;
     }
 
-    public void removeHead() {
-        orders.poll();
+    void unlink(OrderNode node) {
+        if (node.level != this) return;
+        if (node.prev != null) node.prev.next = node.next; else head = node.next;
+        if (node.next != null) node.next.prev = node.prev; else tail = node.prev;
+        node.prev = node.next = null;
+        node.level = null;
+        orderCount--;
+        totalQuantity -= node.order.getRemainingQuantity();
     }
 
-    public boolean isEmpty() {
-        return orders.isEmpty();
+    /** Keeps the level's aggregate depth correct as a resting order is partially filled. */
+    void reduceQuantity(long filled) {
+        totalQuantity -= filled;
     }
 
-    public BigDecimal getPrice() {
-        return price;
-    }
+    boolean isEmpty() { return head == null; }
 
-    public Optional<Order> cancel(String orderId) {
-    Order found = orders.stream()
-        .filter(o -> o.getId().equals(orderId))
-        .findFirst()
-        .orElse(null);
-    if (found != null) orders.remove(found);
-    return Optional.ofNullable(found);
-}
+    public long getPriceTicks() { return priceTicks; }
+    public int getOrderCount() { return orderCount; }
+    public long getTotalQuantity() { return totalQuantity; }
 }

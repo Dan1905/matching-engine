@@ -1,145 +1,119 @@
 package com.trading.matching_engine.matching;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
-import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.trading.matching_engine.domain.Order;
 import com.trading.matching_engine.domain.OrderStatus;
 import com.trading.matching_engine.domain.OrderType;
-import com.trading.matching_engine.domain.Side;
 import com.trading.matching_engine.domain.Trade;
-import com.trading.matching_engine.orderbook.PriceLevel;
+import com.trading.matching_engine.orderbook.OrderBook;
+import com.trading.matching_engine.orderbook.OrderNode;
+import com.trading.matching_engine.orderbook.TradeIdGenerator;
 
+/**
+ * Routes each order to the book for its symbol and owns the id index that makes
+ * cancel-by-id O(1) across every book.
+ *
+ * Called by exactly ONE thread — MatchingEngineWorker. Every field here is plain,
+ * non-volatile, unsynchronized state, and that is the point: correctness comes from
+ * the threading model, not from runtime locking.
+ */
 @Component
 public class MatchingEngine {
-    private final TreeMap<BigDecimal, PriceLevel> bids =
-        new TreeMap<>(Comparator.reverseOrder());
-    private final TreeMap<BigDecimal, PriceLevel> asks =
-        new TreeMap<>();
+    private static final Logger log = LoggerFactory.getLogger(MatchingEngine.class);
 
-    private void matchBuyOrder(Order incoming, List<Trade> trades, List<Order> updatedOrders) {
-        while (incoming.getRemainingQuantity() > 0 && !asks.isEmpty()) {
-            PriceLevel bestAskLevel = asks.firstEntry().getValue();
+    private final Map<String, OrderBook> books = new HashMap<>();
+    private final Map<String, OrderNode> index = new HashMap<>();
+    private final TradeIdGenerator tradeIds = new TradeIdGenerator();
 
-            boolean crosses = incoming.getOrderType() == OrderType.MARKET
-                || incoming.getPrice().compareTo(bestAskLevel.getPrice()) >= 0;
-            if (!crosses) break;
-
-            Order resting = bestAskLevel.peek();
-            long fillQty = Math.min(incoming.getRemainingQuantity(), resting.getRemainingQuantity());
-
-            trades.add(Trade.builder()
-                .id(UUID.randomUUID().toString())
-                .symbol(incoming.getSymbol())
-                .buyOrderId(incoming.getId())
-                .sellOrderId(resting.getId())
-                .executedPrice(bestAskLevel.getPrice())
-                .executedQty(fillQty)
-                .executedAt(Instant.now())
-                .build());
-
-            incoming.setRemainingQuantity(incoming.getRemainingQuantity() - fillQty);
-            resting.setRemainingQuantity(resting.getRemainingQuantity() - fillQty);
-            updateStatus(incoming);
-            updateStatus(resting);
-            if (!updatedOrders.contains(resting)) updatedOrders.add(resting);
-
-            if (resting.getRemainingQuantity() == 0) bestAskLevel.removeHead();
-            if (bestAskLevel.isEmpty()) asks.pollFirstEntry();
-        }
-    }
-
-    private void matchSellOrder(Order incoming, List<Trade> trades, List<Order> updatedOrders) {
-        while (incoming.getRemainingQuantity() > 0 && !bids.isEmpty()) {
-            PriceLevel bestBidLevel = bids.firstEntry().getValue();
-
-            boolean crosses = incoming.getOrderType() == OrderType.MARKET
-                || incoming.getPrice().compareTo(bestBidLevel.getPrice()) <= 0;
-            if (!crosses) break;
-
-            Order resting = bestBidLevel.peek();
-            long fillQty = Math.min(incoming.getRemainingQuantity(), resting.getRemainingQuantity());
-
-            trades.add(Trade.builder()
-                .id(UUID.randomUUID().toString())
-                .symbol(incoming.getSymbol())
-                .buyOrderId(resting.getId())
-                .sellOrderId(incoming.getId())
-                .executedPrice(bestBidLevel.getPrice())
-                .executedQty(fillQty)
-                .executedAt(Instant.now())
-                .build());
-
-            incoming.setRemainingQuantity(incoming.getRemainingQuantity() - fillQty);
-            resting.setRemainingQuantity(resting.getRemainingQuantity() - fillQty);
-            updateStatus(incoming);
-            updateStatus(resting);
-            if (!updatedOrders.contains(resting)) updatedOrders.add(resting);
-
-            if (resting.getRemainingQuantity() == 0) bestBidLevel.removeHead();
-            if (bestBidLevel.isEmpty()) bids.pollFirstEntry();
-        }
-    }
-
-    private void updateStatus(Order order) {
-        if (order.getRemainingQuantity() == 0)
-            order.setStatus(OrderStatus.FILLED);
-        else if (order.getRemainingQuantity() < order.getOriginalQuantity())
-            order.setStatus(OrderStatus.PARTIALLY_FILLED);
-        else
-            order.setStatus(OrderStatus.NEW);
-    }
-
-        // called by exactly ONE thread — MatchingEngineWorker. No lock needed.
     public MatchResult processOrder(Order incoming) {
-        List<Trade> trades = new ArrayList<>();
-        List<Order> updatedOrders = new ArrayList<>();
+        Instant now = Instant.now();          // once per order, not once per trade
+        OrderBook book = bookFor(incoming.getSymbol());
 
-        if (incoming.getSide() == Side.BUY) {
-            matchBuyOrder(incoming, trades, updatedOrders);
-            if (incoming.getRemainingQuantity() > 0 && incoming.getOrderType() == OrderType.LIMIT) {
-                bids.computeIfAbsent(incoming.getPrice(), PriceLevel::new).addOrder(incoming);
-            }
-        } else {
-            matchSellOrder(incoming, trades, updatedOrders);
-            if (incoming.getRemainingQuantity() > 0 && incoming.getOrderType() == OrderType.LIMIT) {
-                asks.computeIfAbsent(incoming.getPrice(), PriceLevel::new).addOrder(incoming);
+        List<Trade> trades = new ArrayList<>(2);
+        List<Order> updatedOrders = new ArrayList<>(2);
+
+        book.match(incoming, now, trades, updatedOrders);
+
+        if (incoming.getRemainingQuantity() > 0) {
+            if (incoming.getOrderType() == OrderType.LIMIT) {
+                book.rest(incoming);
+            } else {
+                // Market orders are immediate-or-cancel: the remainder never rests. Give
+                // it a terminal status so the client is told, instead of it vanishing.
+                incoming.setStatus(trades.isEmpty() ? OrderStatus.REJECTED : OrderStatus.CANCELLED);
+                updatedOrders.add(incoming);
+                return new MatchResult(incoming, trades, updatedOrders);
             }
         }
 
-        updateStatus(incoming);
+        applyStatus(incoming);
         updatedOrders.add(incoming);
         return new MatchResult(incoming, trades, updatedOrders);
     }
 
-    public Optional<Order> cancel(String orderId, Side side, BigDecimal price) {
-        TreeMap<BigDecimal, PriceLevel> book = side == Side.BUY ? bids : asks;
-        PriceLevel level = book.get(price);
-        if (level == null) return Optional.empty();
+    /**
+     * Places a recovered order straight into the book without matching. A consistent
+     * book never holds crossing orders, so replaying them through processOrder would
+     * invent trades that never happened.
+     */
+    public void restore(Order order) {
+        if (order.getOrderType() != OrderType.LIMIT || order.getPrice() == null) return;
+        if (order.getRemainingQuantity() <= 0) return;
+        bookFor(order.getSymbol()).rest(order);
+    }
 
-        Optional<Order> cancelled = level.cancel(orderId);
-        if (level.isEmpty()) book.remove(price);
+    /** Cancels by id alone — the caller does not need to know the side or price. */
+    public Optional<Order> cancel(String orderId) {
+        OrderNode node = index.get(orderId);
+        if (node == null || node.book() == null) return Optional.empty();
 
+        Optional<Order> cancelled = node.book().remove(orderId);
         cancelled.ifPresent(o -> o.setStatus(OrderStatus.CANCELLED));
         return cancelled;
     }
-    
 
-    public Optional<Order> getBestBid() {
-        if (bids.isEmpty()) return Optional.empty();
-        return Optional.ofNullable(bids.firstEntry().getValue().peek());
+    private OrderBook bookFor(String symbol) {
+        return books.computeIfAbsent(symbol, s -> new OrderBook(s, index, tradeIds));
     }
 
-    public Optional<Order> getBestAsk() {
-        if (asks.isEmpty()) return Optional.empty();
-        return Optional.ofNullable(asks.firstEntry().getValue().peek());
+    private void applyStatus(Order order) {
+        if (order.getRemainingQuantity() == 0) {
+            order.setStatus(OrderStatus.FILLED);
+        } else if (order.getRemainingQuantity() < order.getOriginalQuantity()) {
+            order.setStatus(OrderStatus.PARTIALLY_FILLED);
+        } else {
+            order.setStatus(OrderStatus.NEW);
+        }
+    }
+
+    public Optional<Order> getBestBid(String symbol) {
+        OrderBook book = books.get(symbol);
+        return book == null ? Optional.empty() : book.getBestBid();
+    }
+
+    public Optional<Order> getBestAsk(String symbol) {
+        OrderBook book = books.get(symbol);
+        return book == null ? Optional.empty() : book.getBestAsk();
+    }
+
+    public int getRestingOrderCount() {
+        return index.size();
+    }
+
+    /** Post-recovery sanity check: a restored book must not be crossed. */
+    public void verifyUncrossed() {
+        books.values().stream().filter(OrderBook::isCrossed).forEach(b ->
+            log.error("Recovered book for {} is CROSSED — best bid >= best ask. "
+                + "The persisted order state is inconsistent.", b.getSymbol()));
     }
 }

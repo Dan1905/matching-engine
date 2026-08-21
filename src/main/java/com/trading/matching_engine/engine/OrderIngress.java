@@ -4,4 +4,6 @@ public interface OrderIngress {
     boolean submit(EngineCommand command);
     EngineCommand take() throws InterruptedException;
     boolean isEmpty();
+    int size();
+    boolean isSaturated();
 }
