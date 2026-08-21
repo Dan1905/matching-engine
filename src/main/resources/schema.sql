@@ -22,15 +22,6 @@ CREATE TABLE trades (
     executed_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE market_data (
-    symbol         VARCHAR(20) PRIMARY KEY,
-    bid            NUMERIC(18,4),
-    ask            NUMERIC(18,4),
-    last_sale      NUMERIC(18,4),
-    closing_price  NUMERIC(18,4),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE INDEX idx_trades_symbol      ON trades(symbol);
 CREATE INDEX idx_trades_executed_at ON trades(executed_at);
 CREATE INDEX idx_orders_symbol      ON orders(symbol);

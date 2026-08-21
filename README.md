@@ -276,9 +276,18 @@ Java 21 · Spring Boot 3.2 · PostgreSQL · Redis · JMH · Docker
 
 ## Running
 
+There is no compose file; the two containers are started directly.
+
 ```bash
-docker compose up -d                 # Postgres + Redis
-psql -f src/main/resources/schema.sql
+docker run -d --name me-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=matching_engine -p 5432:5432 postgres:16-alpine
+```
+```bash
+docker run -d --name me-redis -p 6379:6379 redis:7-alpine
+```
+```bash
+docker exec -i me-pg psql -U postgres -d matching_engine < src/main/resources/schema.sql
+```
+```bash
 mvn spring-boot:run
 ```
 

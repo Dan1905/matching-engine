@@ -61,7 +61,6 @@ public final class OrderBook {
 
             incoming.setRemainingQuantity(incoming.getRemainingQuantity() - fillQty);
             maker.setRemainingQuantity(maker.getRemainingQuantity() - fillQty);
-            best.reduceQuantity(fillQty);
             applyFillStatus(maker);
 
             // A maker can be touched at most once per incoming order: if it survives the
@@ -130,11 +129,4 @@ public final class OrderBook {
     }
 
     public String getSymbol() { return symbol; }
-    public boolean isEmpty() { return bids.isEmpty() && asks.isEmpty(); }
-    public int getRestingOrderCount() {
-        int n = 0;
-        for (PriceLevel l : bids.values()) n += l.getOrderCount();
-        for (PriceLevel l : asks.values()) n += l.getOrderCount();
-        return n;
-    }
 }

@@ -52,7 +52,6 @@ public class AsyncPersistenceWriter implements Runnable {
 
     private final AtomicLong blockedHandoffs = new AtomicLong();
     private final AtomicLong deadLetteredBatches = new AtomicLong();
-    private final AtomicLong persistedEvents = new AtomicLong();
 
     public AsyncPersistenceWriter(OrderRepository orderRepo,
                                   TradeRepository tradeRepo,
@@ -96,10 +95,8 @@ public class AsyncPersistenceWriter implements Runnable {
     }
 
     public boolean isIdle() { return queue.isEmpty() && !flushing; }
-    public int getQueueDepth() { return queue.size(); }
     public long getBlockedHandoffCount() { return blockedHandoffs.get(); }
     public long getDeadLetteredBatchCount() { return deadLetteredBatches.get(); }
-    public long getPersistedEventCount() { return persistedEvents.get(); }
 
     @Override
     public void run() {
@@ -138,7 +135,6 @@ public class AsyncPersistenceWriter implements Runnable {
         for (int attempt = 1; attempt <= MAX_FLUSH_ATTEMPTS; attempt++) {
             try {
                 flush(batch);
-                persistedEvents.addAndGet(batch.size());
                 return;
             } catch (Exception e) {
                 if (attempt == MAX_FLUSH_ATTEMPTS) {

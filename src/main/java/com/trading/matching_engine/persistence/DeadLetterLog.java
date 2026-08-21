@@ -91,7 +91,4 @@ public class DeadLetterLog {
         }
         return sb.toString();
     }
-
-    public long getWrittenCount() { return written.get(); }
-    public Path getFile() { return file; }
 }

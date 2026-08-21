@@ -35,13 +35,6 @@ public class OrderGenerator {
         return order;
     }
 
-    /** Submits `count` random orders sequentially from the calling thread. */
-    public void submitBatch(int count) {
-        for (int i = 0; i < count; i++) {
-            submitRandomOrder(i);
-        }
-    }
-
     /** Submits `ordersPerThread` orders each from `producerThreads` concurrent threads. */
     public void submitConcurrent(int producerThreads, int ordersPerThread) throws InterruptedException {
         Thread[] threads = new Thread[producerThreads];

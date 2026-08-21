@@ -18,7 +18,6 @@ public final class OrderNode {
         this.order = order;
     }
 
-    public Order order() { return order; }
     public OrderBook book() { return book; }
     boolean isLinked() { return level != null; }
 }

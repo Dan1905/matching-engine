@@ -11,8 +11,6 @@ public final class PriceLevel {
     private final long priceTicks;
     private OrderNode head;
     private OrderNode tail;
-    private int orderCount;
-    private long totalQuantity;
 
     PriceLevel(long priceTicks) {
         this.priceTicks = priceTicks;
@@ -28,8 +26,6 @@ public final class PriceLevel {
             node.prev = tail;
             tail = node;
         }
-        orderCount++;
-        totalQuantity += order.getRemainingQuantity();
         return node;
     }
 
@@ -43,18 +39,9 @@ public final class PriceLevel {
         if (node.next != null) node.next.prev = node.prev; else tail = node.prev;
         node.prev = node.next = null;
         node.level = null;
-        orderCount--;
-        totalQuantity -= node.order.getRemainingQuantity();
-    }
-
-    /** Keeps the level's aggregate depth correct as a resting order is partially filled. */
-    void reduceQuantity(long filled) {
-        totalQuantity -= filled;
     }
 
     boolean isEmpty() { return head == null; }
 
     public long getPriceTicks() { return priceTicks; }
-    public int getOrderCount() { return orderCount; }
-    public long getTotalQuantity() { return totalQuantity; }
 }

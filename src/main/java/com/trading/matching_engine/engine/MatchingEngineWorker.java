@@ -101,6 +101,4 @@ public class MatchingEngineWorker implements Runnable {
     public void stop() { running = false; }
 
     public boolean isIdle() { return !busy && ingress.isEmpty() && writer.isIdle(); }
-
-    public long getProcessedCommands() { return processedCommands; }
 }

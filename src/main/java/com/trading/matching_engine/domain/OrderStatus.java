@@ -6,9 +6,5 @@ public enum OrderStatus {
     FILLED,
     CANCELLED,
     /** Never entered the book: failed validation at the engine, or an unfillable market order. */
-    REJECTED;
-
-    public boolean isTerminal() {
-        return this == FILLED || this == CANCELLED || this == REJECTED;
-    }
+    REJECTED
 }

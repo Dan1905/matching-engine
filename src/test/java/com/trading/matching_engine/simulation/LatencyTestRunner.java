@@ -37,8 +37,6 @@ import com.trading.matching_engine.redis.OrderStatusCache;
 public class LatencyTestRunner {
 
     public static void main(String[] args) throws InterruptedException {
-        // DevTools relaunches standalone main classes without their original arguments.
-        System.setProperty("spring.devtools.restart.enabled", "false");
         System.setProperty(
             "logging.level.com.trading.matching_engine.persistence.AsyncPersistenceWriter",
             "INFO");

@@ -33,11 +33,6 @@ public class QueueBasedIngress implements OrderIngress {
     }
 
     @Override
-    public int size() {
-        return queue.size();
-    }
-
-    @Override
     public boolean isSaturated() {
         return queue.size() >= CAPACITY * SATURATION_THRESHOLD;
     }
